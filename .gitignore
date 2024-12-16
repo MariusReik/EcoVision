@@ -1,0 +1,25 @@
+# Node.js
+node_modules/
+
+# Environment variables
+.env
+
+# Logs
+logs/
+*.log
+
+# Database
+*.sqlite
+*.db
+
+# Build files
+dist/
+build/
+
+# IDE/editor
+.vscode/
+.idea/
+
+# OS-generated files
+.DS_Store
+Thumbs.db
