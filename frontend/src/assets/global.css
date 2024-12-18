@@ -1,0 +1,26 @@
+:root {
+    --primary-green: #8BC34A;
+    --bg-white: #ffffff;
+    --text-dark: #333333;
+    --border-light: #f0f0f0;
+    --font-sans: 'Inter', sans-serif;
+  }
+  
+  html, body {
+    margin: 0;
+    padding: 0;
+    font-family: var(--font-sans);
+    color: var(--text-dark);
+    background: var(--bg-white);
+  }
+  
+  * {
+    box-sizing: border-box;
+  }
+  
+  .content-container {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 2rem;
+  }
+  
