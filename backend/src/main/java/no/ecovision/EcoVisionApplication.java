@@ -10,3 +10,5 @@ public class EcoVisionApplication {
         SpringApplication.run(EcoVisionApplication.class, args);
     }
 }
+
+    // debug: starting app
