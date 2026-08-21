@@ -1,0 +1,29 @@
+spring:
+  application:
+    name: ecovision-backend
+
+  datasource:
+    url: jdbc:postgresql://localhost:5432/ecovision
+    username: ecovision
+    password: ecovision
+
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+
+server:
+  port: 8080
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      show-details: never

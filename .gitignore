@@ -16,6 +16,16 @@ logs/
 dist/
 build/
 
+# Gradle
+.gradle/
+backend/build/
+backend/bin/
+!backend/gradle/wrapper/gradle-wrapper.jar
+
+# Java
+*.class
+HELP.md
+
 # IDE/editor
 .vscode/
 .idea/
