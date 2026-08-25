@@ -16,8 +16,19 @@ spring:
     hibernate:
       ddl-auto: validate
 
+  mvc:
+    problemdetails:
+      enabled: true
+
 server:
   port: 8080
+
+ecovision:
+  jwt:
+    # No default on purpose - see JwtConfig.java. Must be a random value of at least
+    # 32 bytes, e.g. `openssl rand -base64 32`. The app refuses to start without it.
+    secret: ${JWT_SECRET}
+    expiration-minutes: ${JWT_EXPIRATION_MINUTES:60}
 
 management:
   endpoints:
