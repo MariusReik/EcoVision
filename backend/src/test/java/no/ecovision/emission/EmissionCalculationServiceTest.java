@@ -42,6 +42,11 @@ class EmissionCalculationServiceTest {
         registry.add("spring.datasource.url", POSTGRES::getJdbcUrl);
         registry.add("spring.datasource.username", POSTGRES::getUsername);
         registry.add("spring.datasource.password", POSTGRES::getPassword);
+
+        // @SpringBootTest boots the whole context, including JwtConfig (phase 2), which
+        // needs this even though this test never touches auth.
+        registry.add("ecovision.jwt.secret", () -> "emission-test-signing-key-at-least-32-bytes!!");
+        registry.add("ecovision.jwt.expiration-minutes", () -> "60");
     }
 
     private static final String ELECTRICITY = "electricity";
