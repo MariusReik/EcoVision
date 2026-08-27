@@ -9,8 +9,10 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 import java.net.URI;
 
+import no.ecovision.activity.ActivityTypeNotFoundException;
 import no.ecovision.auth.EmailAlreadyRegisteredException;
 import no.ecovision.auth.InvalidCredentialsException;
+import no.ecovision.emission.FactorNotFoundException;
 
 /**
  * Translates domain exceptions to RFC 9457 application/problem+json (CLAUDE.md: no bare
@@ -37,6 +39,25 @@ public class GlobalExceptionHandler {
         ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.UNAUTHORIZED, ex.getMessage());
         problem.setTitle("Invalid credentials");
         problem.setType(URI.create("https://ecovision.no/problems/invalid-credentials"));
+        return problem;
+    }
+
+    @ExceptionHandler(ActivityTypeNotFoundException.class)
+    public ProblemDetail handleActivityTypeNotFound(ActivityTypeNotFoundException ex) {
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.NOT_FOUND, ex.getMessage());
+        problem.setTitle("Activity type not found");
+        problem.setType(URI.create("https://ecovision.no/problems/activity-type-not-found"));
+        return problem;
+    }
+
+    @ExceptionHandler(FactorNotFoundException.class)
+    public ProblemDetail handleFactorNotFound(FactorNotFoundException ex) {
+        // 422, not 404/400: the request is well-formed and the activity type is real,
+        // but no emission factor covers it. See ARCHITECTURE.md section 5, decision 2 -
+        // never substitute a guess, reject the write instead.
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.UNPROCESSABLE_ENTITY, ex.getMessage());
+        problem.setTitle("No applicable emission factor");
+        problem.setType(URI.create("https://ecovision.no/problems/factor-not-found"));
         return problem;
     }
 
