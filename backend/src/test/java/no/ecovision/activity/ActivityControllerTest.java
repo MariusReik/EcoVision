@@ -1,0 +1,199 @@
+package no.ecovision.activity;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.http.MediaType;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.web.servlet.MockMvc;
+import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.junit.jupiter.Container;
+import org.testcontainers.junit.jupiter.Testcontainers;
+
+import java.math.BigDecimal;
+import java.time.LocalDate;
+
+import no.ecovision.auth.RegisterRequest;
+import no.ecovision.user.UserRepository;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
+/**
+ * Phase 3: POST /api/activities. Fixtures are test-only, not seeded production data -
+ * V2__seed_reference_data.sql is deliberately still empty pending cited sources
+ * (CLAUDE.md: never invent an emission factor).
+ */
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.MOCK)
+@AutoConfigureMockMvc
+@Testcontainers
+class ActivityControllerTest {
+
+    @Container
+    static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:16-alpine")
+            .withDatabaseName("ecovision")
+            .withUsername("ecovision")
+            .withPassword("ecovision");
+
+    @DynamicPropertySource
+    static void properties(DynamicPropertyRegistry registry) {
+        registry.add("spring.datasource.url", POSTGRES::getJdbcUrl);
+        registry.add("spring.datasource.username", POSTGRES::getUsername);
+        registry.add("spring.datasource.password", POSTGRES::getPassword);
+        registry.add("ecovision.jwt.secret", () -> "activity-test-signing-key-at-least-32-bytes!!");
+        registry.add("ecovision.jwt.expiration-minutes", () -> "60");
+    }
+
+    private static final String ELECTRICITY = "electricity";
+
+    @Autowired
+    private MockMvc mockMvc;
+
+    @Autowired
+    private ObjectMapper objectMapper;
+
+    @Autowired
+    private UserRepository userRepository;
+
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
+
+    @BeforeEach
+    void seedFixtures() {
+        jdbcTemplate.update("DELETE FROM activity_log");
+        userRepository.deleteAll();
+        jdbcTemplate.update("DELETE FROM emission_factor");
+        jdbcTemplate.update("DELETE FROM activity_type");
+
+        jdbcTemplate.update("""
+                INSERT INTO activity_type (code, category, display_name, unit)
+                VALUES (?, 'ENERGY', 'Electricity', 'kWh')
+                """, ELECTRICITY);
+
+        jdbcTemplate.update("""
+                INSERT INTO emission_factor
+                    (activity_type_code, region, accounting_basis, factor_kg_co2e,
+                     source, source_year, valid_from, valid_to)
+                VALUES (?, 'GLOBAL', 'LOCATION', '0.445',
+                        'TEST FIXTURE - global average grid factor', 2025, '2025-01-01', NULL)
+                """, ELECTRICITY);
+    }
+
+    @Test
+    void create_validActivity_computesEmissionsServerSideAndStoresTheFactorUsed() throws Exception {
+        String token = registerAndGetToken("activity.owner@example.com");
+
+        var request = new CreateActivityRequest(ELECTRICITY, new BigDecimal("10"), LocalDate.of(2025, 6, 1), "commute");
+
+        mockMvc.perform(post("/api/activities")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.id").exists())
+                .andExpect(jsonPath("$.activityTypeCode").value(ELECTRICITY))
+                .andExpect(jsonPath("$.quantity").value(10))
+                // 10 * 0.445
+                .andExpect(jsonPath("$.emissionsKg").value(4.45))
+                .andExpect(jsonPath("$.note").value("commute"));
+
+        var owner = userRepository.findByEmailIgnoreCase("activity.owner@example.com").orElseThrow();
+        Object storedUserId = jdbcTemplate.queryForObject(
+                "SELECT user_id FROM activity_log WHERE activity_type_code = ?", Object.class, ELECTRICITY);
+        assertThat(storedUserId.toString()).isEqualTo(owner.getId().toString());
+    }
+
+    @Test
+    void create_clientSuppliedEmissionsIsIgnored_becauseTheRequestDtoHasNoSuchField() throws Exception {
+        // POST /api/activities must never accept an emissions value from the client
+        // (CLAUDE.md). CreateActivityRequest simply has no emissionsKg field to bind to,
+        // so this is enforced by the shape of the DTO rather than by runtime logic -
+        // this test documents that guarantee.
+        String token = registerAndGetToken("no.client.emissions@example.com");
+
+        String rawRequest = """
+                {"activityTypeCode": "%s", "quantity": 10, "occurredOn": "2025-06-01", "emissionsKg": 999999}
+                """.formatted(ELECTRICITY);
+
+        mockMvc.perform(post("/api/activities")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(rawRequest))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.emissionsKg").value(4.45));
+    }
+
+    @Test
+    void create_unknownActivityTypeCode_returns404ProblemJson() throws Exception {
+        String token = registerAndGetToken("unknown.type@example.com");
+
+        var request = new CreateActivityRequest("teleportation", BigDecimal.TEN, LocalDate.of(2025, 6, 1), null);
+
+        mockMvc.perform(post("/api/activities")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isNotFound())
+                .andExpect(content().contentType("application/problem+json"));
+    }
+
+    @Test
+    void create_noFactorCoversTheDate_returns422ProblemJson() throws Exception {
+        String token = registerAndGetToken("no.factor@example.com");
+
+        var request = new CreateActivityRequest(ELECTRICITY, BigDecimal.TEN, LocalDate.of(2019, 1, 1), null);
+
+        mockMvc.perform(post("/api/activities")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(content().contentType("application/problem+json"));
+    }
+
+    @Test
+    void create_futureOccurredOn_returns400ProblemJson() throws Exception {
+        String token = registerAndGetToken("future.date@example.com");
+
+        var request = new CreateActivityRequest(ELECTRICITY, BigDecimal.TEN, LocalDate.now().plusDays(1), null);
+
+        mockMvc.perform(post("/api/activities")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentType("application/problem+json"));
+    }
+
+    @Test
+    void create_withoutBearerToken_returns401() throws Exception {
+        var request = new CreateActivityRequest(ELECTRICITY, BigDecimal.TEN, LocalDate.of(2025, 6, 1), null);
+
+        mockMvc.perform(post("/api/activities")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isUnauthorized());
+    }
+
+    private String registerAndGetToken(String email) throws Exception {
+        var request = new RegisterRequest(email, "password12345", "Activity Owner", "GLOBAL");
+
+        String body = mockMvc.perform(post("/api/auth/register")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isCreated())
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+
+        return objectMapper.readTree(body).get("token").asText();
+    }
+}
