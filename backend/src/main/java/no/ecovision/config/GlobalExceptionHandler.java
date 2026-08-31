@@ -9,6 +9,7 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 import java.net.URI;
 
+import no.ecovision.activity.ActivityNotFoundException;
 import no.ecovision.activity.ActivityTypeNotFoundException;
 import no.ecovision.auth.EmailAlreadyRegisteredException;
 import no.ecovision.auth.InvalidCredentialsException;
@@ -47,6 +48,14 @@ public class GlobalExceptionHandler {
         ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.NOT_FOUND, ex.getMessage());
         problem.setTitle("Activity type not found");
         problem.setType(URI.create("https://ecovision.no/problems/activity-type-not-found"));
+        return problem;
+    }
+
+    @ExceptionHandler(ActivityNotFoundException.class)
+    public ProblemDetail handleActivityNotFound(ActivityNotFoundException ex) {
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.NOT_FOUND, ex.getMessage());
+        problem.setTitle("Activity not found");
+        problem.setType(URI.create("https://ecovision.no/problems/activity-not-found"));
         return problem;
     }
 

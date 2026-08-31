@@ -22,6 +22,7 @@ import no.ecovision.auth.RegisterRequest;
 import no.ecovision.user.UserRepository;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -181,6 +182,67 @@ class ActivityControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void delete_ownActivity_returns204AndRemovesTheRow() throws Exception {
+        String token = registerAndGetToken("delete.owner@example.com");
+        String id = createActivity(token);
+
+        mockMvc.perform(delete("/api/activities/" + id)
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isNoContent());
+
+        Integer remaining = jdbcTemplate.queryForObject(
+                "SELECT count(*) FROM activity_log WHERE id = ?::uuid", Integer.class, id);
+        assertThat(remaining).isZero();
+    }
+
+    @Test
+    void delete_activityOwnedByAnotherUser_returns404ProblemJsonAndLeavesTheRow() throws Exception {
+        String ownerToken = registerAndGetToken("real.owner@example.com");
+        String otherToken = registerAndGetToken("nosy.stranger@example.com");
+        String id = createActivity(ownerToken);
+
+        mockMvc.perform(delete("/api/activities/" + id)
+                        .header("Authorization", "Bearer " + otherToken))
+                .andExpect(status().isNotFound())
+                .andExpect(content().contentType("application/problem+json"));
+
+        Integer remaining = jdbcTemplate.queryForObject(
+                "SELECT count(*) FROM activity_log WHERE id = ?::uuid", Integer.class, id);
+        assertThat(remaining).isOne();
+    }
+
+    @Test
+    void delete_unknownId_returns404ProblemJson() throws Exception {
+        String token = registerAndGetToken("delete.unknown@example.com");
+
+        mockMvc.perform(delete("/api/activities/" + java.util.UUID.randomUUID())
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isNotFound())
+                .andExpect(content().contentType("application/problem+json"));
+    }
+
+    @Test
+    void delete_withoutBearerToken_returns401() throws Exception {
+        mockMvc.perform(delete("/api/activities/" + java.util.UUID.randomUUID()))
+                .andExpect(status().isUnauthorized());
+    }
+
+    private String createActivity(String token) throws Exception {
+        var request = new CreateActivityRequest(ELECTRICITY, new BigDecimal("10"), LocalDate.of(2025, 6, 1), null);
+
+        String body = mockMvc.perform(post("/api/activities")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isCreated())
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+
+        return objectMapper.readTree(body).get("id").asText();
     }
 
     private String registerAndGetToken(String email) throws Exception {

@@ -62,4 +62,11 @@ public class ActivityService {
 
         return ActivityResponse.from(activityLogRepository.save(activity));
     }
+
+    @Transactional
+    public void delete(UUID userId, UUID activityId) {
+        if (activityLogRepository.deleteByIdAndUserId(activityId, userId) == 0) {
+            throw new ActivityNotFoundException(activityId);
+        }
+    }
 }
