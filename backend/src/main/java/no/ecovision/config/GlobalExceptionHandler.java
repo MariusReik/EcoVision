@@ -11,6 +11,7 @@ import java.net.URI;
 
 import no.ecovision.activity.ActivityNotFoundException;
 import no.ecovision.activity.ActivityTypeNotFoundException;
+import no.ecovision.activity.InvalidCursorException;
 import no.ecovision.auth.EmailAlreadyRegisteredException;
 import no.ecovision.auth.InvalidCredentialsException;
 import no.ecovision.emission.FactorNotFoundException;
@@ -56,6 +57,14 @@ public class GlobalExceptionHandler {
         ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.NOT_FOUND, ex.getMessage());
         problem.setTitle("Activity not found");
         problem.setType(URI.create("https://ecovision.no/problems/activity-not-found"));
+        return problem;
+    }
+
+    @ExceptionHandler(InvalidCursorException.class)
+    public ProblemDetail handleInvalidCursor(InvalidCursorException ex) {
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, ex.getMessage());
+        problem.setTitle("Invalid cursor");
+        problem.setType(URI.create("https://ecovision.no/problems/invalid-cursor"));
         return problem;
     }
 

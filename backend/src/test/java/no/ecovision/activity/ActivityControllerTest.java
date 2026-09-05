@@ -23,15 +23,16 @@ import no.ecovision.user.UserRepository;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
- * Phase 3: POST /api/activities. Fixtures are test-only, not seeded production data -
- * V2__seed_reference_data.sql is deliberately still empty pending cited sources
- * (CLAUDE.md: never invent an emission factor).
+ * Phase 3: POST, GET and DELETE /api/activities. Fixtures are test-only, not seeded
+ * production data - V2__seed_reference_data.sql is deliberately still empty pending
+ * cited sources (CLAUDE.md: never invent an emission factor).
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.MOCK)
 @AutoConfigureMockMvc
@@ -230,8 +231,90 @@ class ActivityControllerTest {
                 .andExpect(status().isUnauthorized());
     }
 
+    @Test
+    void list_returnsOnlyTheCallersActivitiesNewestFirst() throws Exception {
+        String ownerToken = registerAndGetToken("list.owner@example.com");
+        String otherToken = registerAndGetToken("list.stranger@example.com");
+        createActivity(ownerToken, LocalDate.of(2025, 6, 1));
+        createActivity(ownerToken, LocalDate.of(2025, 6, 3));
+        createActivity(otherToken, LocalDate.of(2025, 6, 2));
+
+        mockMvc.perform(get("/api/activities")
+                        .header("Authorization", "Bearer " + ownerToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items.length()").value(2))
+                .andExpect(jsonPath("$.items[0].occurredOn").value("2025-06-03"))
+                .andExpect(jsonPath("$.items[1].occurredOn").value("2025-06-01"))
+                .andExpect(jsonPath("$.nextCursor").doesNotExist());
+    }
+
+    @Test
+    void list_respectsFromAndToFilters() throws Exception {
+        String token = registerAndGetToken("list.filtered@example.com");
+        createActivity(token, LocalDate.of(2025, 1, 1));
+        createActivity(token, LocalDate.of(2025, 6, 1));
+        createActivity(token, LocalDate.of(2025, 12, 1));
+
+        mockMvc.perform(get("/api/activities")
+                        .header("Authorization", "Bearer " + token)
+                        .param("from", "2025-02-01")
+                        .param("to", "2025-11-01"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items.length()").value(1))
+                .andExpect(jsonPath("$.items[0].occurredOn").value("2025-06-01"));
+    }
+
+    @Test
+    void list_paginatesWithACursorAndCoversTheFullSetExactlyOnce() throws Exception {
+        String token = registerAndGetToken("list.paged@example.com");
+        createActivity(token, LocalDate.of(2025, 1, 1));
+        createActivity(token, LocalDate.of(2025, 2, 1));
+        createActivity(token, LocalDate.of(2025, 3, 1));
+
+        String firstPageBody = mockMvc.perform(get("/api/activities")
+                        .header("Authorization", "Bearer " + token)
+                        .param("limit", "2"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items.length()").value(2))
+                .andExpect(jsonPath("$.nextCursor").exists())
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+        String cursor = objectMapper.readTree(firstPageBody).get("nextCursor").asText();
+
+        mockMvc.perform(get("/api/activities")
+                        .header("Authorization", "Bearer " + token)
+                        .param("limit", "2")
+                        .param("cursor", cursor))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items.length()").value(1))
+                .andExpect(jsonPath("$.items[0].occurredOn").value("2025-01-01"))
+                .andExpect(jsonPath("$.nextCursor").doesNotExist());
+    }
+
+    @Test
+    void list_malformedCursor_returns400ProblemJson() throws Exception {
+        String token = registerAndGetToken("list.badcursor@example.com");
+
+        mockMvc.perform(get("/api/activities")
+                        .header("Authorization", "Bearer " + token)
+                        .param("cursor", "not-a-valid-cursor"))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentType("application/problem+json"));
+    }
+
+    @Test
+    void list_withoutBearerToken_returns401() throws Exception {
+        mockMvc.perform(get("/api/activities"))
+                .andExpect(status().isUnauthorized());
+    }
+
     private String createActivity(String token) throws Exception {
-        var request = new CreateActivityRequest(ELECTRICITY, new BigDecimal("10"), LocalDate.of(2025, 6, 1), null);
+        return createActivity(token, LocalDate.of(2025, 6, 1));
+    }
+
+    private String createActivity(String token, LocalDate occurredOn) throws Exception {
+        var request = new CreateActivityRequest(ELECTRICITY, new BigDecimal("10"), occurredOn, null);
 
         String body = mockMvc.perform(post("/api/activities")
                         .header("Authorization", "Bearer " + token)
