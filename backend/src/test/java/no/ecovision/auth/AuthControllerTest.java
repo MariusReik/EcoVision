@@ -153,9 +153,6 @@ class AuthControllerTest {
 
     @Test
     void requestWithNoBearerToken_isRejectedForAnyRouteOtherThanAuthAndHealth() throws Exception {
-        // No controller is mapped to /api/me yet (that's user-profile work, not phase 2),
-        // but the security filter chain must reject it before dispatch ever gets there -
-        // "authenticated by default" has to hold for routes that don't exist yet either.
         mockMvc.perform(get("/api/me")).andExpect(status().isUnauthorized());
     }
 
