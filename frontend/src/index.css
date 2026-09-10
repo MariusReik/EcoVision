@@ -1,0 +1,16 @@
+@import "tailwindcss";
+
+@theme {
+  --color-eco-50: #f0fdf5;
+  --color-eco-100: #dcfce8;
+  --color-eco-200: #bbf7d1;
+  --color-eco-500: #22a565;
+  --color-eco-600: #16874f;
+  --color-eco-700: #12693f;
+  --color-eco-900: #0e4a2f;
+}
+
+body {
+  background-color: var(--color-eco-50);
+  color: #1f2937;
+}
