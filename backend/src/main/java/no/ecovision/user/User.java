@@ -86,4 +86,16 @@ public class User {
     public OffsetDateTime getCreatedAt() {
         return createdAt;
     }
+
+    public void setDisplayName(String displayName) {
+        this.displayName = displayName;
+    }
+
+    public void setRegion(String region) {
+        this.region = region;
+    }
+
+    public void setAccountingBasis(AccountingBasis accountingBasis) {
+        this.accountingBasis = accountingBasis;
+    }
 }
