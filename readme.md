@@ -1,95 +1,117 @@
-
 # EcoVision
 
-EcoVision is a web application designed to help users monitor and reduce their carbon footprint by tracking daily activities, calculating associated carbon emissions, and providing actionable insights. The platform offers visual dashboards, personalized recommendations, and optional integration with carbon offset programs.
+A carbon footprint tracker. Log a transport, energy, food, or waste activity and the
+server calculates its emissions once, using a real, cited, region-aware conversion
+factor — never a client-supplied number, never recomputed later. See
+[ARCHITECTURE.md](../ARCHITECTURE.md) for the full design rationale.
 
-## Features
+This is a from-scratch rebuild of an earlier Vue/Express prototype. The old version
+grew carbon-offset integrations, achievements, and a leaderboard before the core
+tracking loop even worked; this rebuild deliberately keeps scope to what's in
+ARCHITECTURE.md section 2.
 
-- **User Activity Tracking**: Log daily activities such as transportation, energy usage, diet, and recycling.
-- **Carbon Emission Calculations**: Convert logged activities into carbon emission values using reliable datasets and APIs.
-- **Dashboard Visualization**: View charts and insights that illustrate your environmental impact over time.
-- **Actionable Insights & Suggestions**: Receive personalized tips to improve and reduce your carbon footprint.
-- **Carbon Offset Integration**: Optionally connect with tree-planting or carbon offset programs through external APIs.
+![Dashboard screenshot](docs/screenshot-dashboard.png)
 
-## Tech Stack
+## What it actually does
 
-- **Frontend**: Vue.js 3, Tailwind CSS, Vite
-- **State Management**: Pinia
-- **Routing**: Vue Router
-- **Charting**: Chart.js integrated with Vue
-- **Backend**: Express.js
-- **Database**: PostgreSQL
-- **ORM**: Sequelize
+- Register and log in (JWT, BCrypt password hashing).
+- Log an activity — car trip, electricity/gas usage, a meal, waste disposal — as a
+  quantity and a date. The server resolves the correct emission factor for your
+  region (falling back to a global average when no region-specific factor exists)
+  and stores the computed `emissions_kg` alongside the exact factor used, so every
+  entry is auditable after the fact.
+- Browse your activity history (cursor-paginated) and delete entries.
+- A dashboard: total emissions over a date range, a breakdown by category, and a
+  daily trend chart.
+- Per-user settings: display name, region, and — for electricity specifically —
+  whether to account on a location basis (physical grid mix) or market basis
+  (residual mix after tradable guarantees of origin are sold, see below).
 
-## Getting Started
+## What it doesn't do
 
-### Prerequisites
+No carbon offsets, no achievements, no leaderboard, no stored/generic
+recommendations, no social features. These were explicitly cut from scope; see
+ARCHITECTURE.md's hard rules before proposing any of them back in.
 
-- Node.js (version 14 or above)
-- PostgreSQL (version 12 or above)
+## The emission factors are real
 
-### Installation
+Every row in `emission_factor` cites a real, dated, published source — no number in
+this dataset was invented. Currently seeded ([V3 migration](backend/src/main/resources/db/migration/V3__seed_reference_data.sql)):
 
-1. **Clone the repository**:
+- **DESNZ (UK) 2024 GHG Conversion Factors for Company Reporting** — cars, bus,
+  rail, short-haul flights, natural gas, UK grid electricity, landfill waste.
+- **Poore & Nemecek (2018), *Science*** — beef, chicken, pork, milk, rice, via
+  Our World in Data's summary of the ~38,700-farm dataset.
+- **NVE (Norway), 2024** — Norway's physical electricity production mix
+  (11.9 g CO2e/kWh — hydro/wind-dominated, so dramatically lower than most grids).
 
-   ```bash
-   git clone https://github.com/MariusReik/EcoVision.git
-   cd EcoVision
-   ```
+**Known gap:** Norway's *market-based* electricity factor (the residual mix reported
+in NVE's *varedeklarasjon*, relevant once a supplier's guarantees of origin are sold
+abroad) is not yet seeded. Secondary sources disagreed by more than 100 g CO2e/kWh
+and none could be confirmed directly against an NVE-published figure, so — per this
+project's rule against guessing factors — it was left out rather than estimated.
+Practically: selecting "Market-based" accounting for a Norway account will 422 with
+`no-applicable-emission-factor` on electricity specifically, until that figure is
+sourced from NVE's *strømdeklarasjoner* factor sheet.
 
-2. **Backend Setup**:
+Every other region falls back to the GLOBAL factor for activity types that don't yet
+have a region-specific override — this is correct, documented behavior (see
+ARCHITECTURE.md section 5), not a bug.
 
-   - Navigate to the backend directory:
+## Tech stack
 
-     ```bash
-     cd backend
-     ```
+**Backend:** Java 21, Spring Boot 3, Spring Data JPA, Spring Security (JWT resource
+server), PostgreSQL 16, Flyway, Gradle (Kotlin DSL), JUnit 5 + Testcontainers.
 
-   - Install dependencies:
+**Frontend:** TypeScript, React 19, Vite, TanStack Query, React Router, Tailwind
+CSS v4, Recharts.
 
-     ```bash
-     npm install
-     ```
+## Running it locally
 
-   - Configure the database:
+```bash
+docker compose up -d              # Postgres on :5432
 
-     - Ensure PostgreSQL is running.
-     - Create a `.env` file based on the provided `.env.example` and set your database credentials.
+cd backend
+export JWT_SECRET=$(openssl rand -base64 32)
+./gradlew bootRun                 # backend on :8080, runs Flyway migrations on boot
 
-   - Run database migrations:
+cd ../frontend
+npm install
+npm run dev                       # frontend on :5173
+```
 
-     ```bash
-     npx sequelize-cli db:migrate
-     ```
+Then open http://localhost:5173, register an account, and log an activity — or skip
+registration and use the demo account below.
 
-   - Start the backend server:
+### Demo account
 
-     ```bash
-     npm start
-     ```
+```bash
+node scripts/seed-demo-account.mjs
+```
 
-3. **Frontend Setup**:
+Creates (or reuses) `demo@ecovision.app` / `DemoPass123!` with about ten activities
+spread over the last couple of weeks, so the dashboard has something to show
+immediately. Requires the backend to already be running.
 
-   - Navigate to the frontend directory:
+### API docs
 
-     ```bash
-     cd ../frontend
-     ```
+With the backend running: interactive Swagger UI at
+http://localhost:8080/swagger-ui.html, raw OpenAPI JSON at
+http://localhost:8080/v3/api-docs. Every endpoint under `/api` except
+`/api/auth/register` and `/api/auth/login` requires a bearer token from the login
+response.
 
-   - Install dependencies:
+### Tests
 
-     ```bash
-     npm install
-     ```
+```bash
+cd backend
+./gradlew test                    # unit + Testcontainers integration tests; requires Docker running
+```
 
-   - Start the frontend development server:
+## Known gaps
 
-     ```bash
-     npm run dev
-     ```
-
-
-## Contributing
-
-Contributions are welcome! Please fork the repository and create a new branch for any feature or bug fix. Submit a pull request with a clear description of your changes.
-
+- No CI pipeline yet (ARCHITECTURE.md calls for GitHub Actions running build/test/lint
+  on push; not set up in this repository yet).
+- Norway market-basis electricity factor — see above.
+- Region-specific factors exist for the UK (via DESNZ) and Norway (via NVE) only;
+  every other listed region currently resolves to the GLOBAL average.
