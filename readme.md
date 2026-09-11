@@ -1,9 +1,10 @@
 # EcoVision
 
+[![CI](https://github.com/MariusReik/EcoVision/actions/workflows/ci.yml/badge.svg)](https://github.com/MariusReik/EcoVision/actions/workflows/ci.yml)
+
 A carbon footprint tracker. Log a transport, energy, food, or waste activity and the
 server calculates its emissions once, using a real, cited, region-aware conversion
-factor — never a client-supplied number, never recomputed later. See
-[ARCHITECTURE.md](../ARCHITECTURE.md) for the full design rationale.
+factor — never a client-supplied number, never recomputed later.
 
 This is a from-scratch rebuild of an earlier Vue/Express prototype. The old version
 grew carbon-offset integrations, achievements, and a leaderboard before the core
@@ -110,8 +111,6 @@ cd backend
 
 ## Known gaps
 
-- No CI pipeline yet (ARCHITECTURE.md calls for GitHub Actions running build/test/lint
-  on push; not set up in this repository yet).
 - Norway market-basis electricity factor — see above.
 - Region-specific factors exist for the UK (via DESNZ) and Norway (via NVE) only;
   every other listed region currently resolves to the GLOBAL average.
